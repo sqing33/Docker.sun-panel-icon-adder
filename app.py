@@ -250,41 +250,62 @@ def get_icon_urls():
 def get_docker_containers():
     """获取 Docker 容器列表"""
     try:
-        result = subprocess.run(['docker', 'ps', '--format', '{{.Names}}|{{.Ports}}|{{.Image}}'], 
-                              capture_output=True, text=True, timeout=10)
+        # 使用Docker API通过Unix socket获取容器信息
+        import socket
+        import json
         
-        if result.returncode != 0:
-            return [], f"Docker命令执行失败: {result.stderr}"
+        # 创建Unix socket连接
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.connect('/var/run/docker.sock')
+        
+        # 发送HTTP请求到Docker API
+        request = "GET /containers/json HTTP/1.1\r\nHost: localhost\r\n\r\n"
+        sock.send(request.encode())
+        
+        # 读取响应
+        response = b''
+        while True:
+            data = sock.recv(4096)
+            if not data:
+                break
+            response += data
+        
+        sock.close()
+        
+        # 解析HTTP响应
+        headers, body = response.split(b'\r\n\r\n', 1)
+        containers_data = json.loads(body.decode())
         
         containers = []
-        for line in result.stdout.strip().split('\n'):
-            if line.strip():
-                name, ports, image = line.split('|', 2)
-                
-                # 解析端口信息
-                internal_ip = ""
-                if ports:
-                    # 提取第一个端口映射，格式如: 0.0.0.0:8080->80/tcp
-                    port_parts = ports.split('->')[0].split(':')
-                    if len(port_parts) >= 2:
-                        ip = port_parts[0] if port_parts[0] != '0.0.0.0' else 'localhost'
-                        port = port_parts[1]
-                        internal_ip = f"{ip}:{port}"
-                
-                containers.append({
-                    'name': name,
-                    'domain': name,
-                    'external_url': '',  # 外部地址留空
-                    'internal_ip': internal_ip,
-                    'description': f"{image} ({ports if ports else '无端口暴露'})",
-                    'status': '运行中',
-                    'source': 'docker'  # 标记来源为Docker
-                })
+        for container in containers_data:
+            name = container['Names'][0].lstrip('/')
+            image = container['Image']
+            
+            # 解析端口信息
+            internal_ip = ""
+            ports_info = container.get('Ports', [])
+            if ports_info:
+                # 获取第一个公开的端口
+                for port_info in ports_info:
+                    if port_info.get('PublicPort'):
+                        ip = port_info.get('IP', 'localhost')
+                        if ip == '0.0.0.0':
+                            ip = 'localhost'
+                        internal_ip = f"{ip}:{port_info['PublicPort']}"
+                        break
+            
+            containers.append({
+                'name': name,
+                'domain': name,
+                'external_url': '',  # 外部地址留空
+                'internal_ip': internal_ip,
+                'description': f"{image} ({internal_ip if internal_ip else '无端口暴露'})",
+                'status': '运行中',
+                'source': 'docker'  # 标记来源为Docker
+            })
         
         return containers, None
         
-    except subprocess.TimeoutExpired:
-        return [], "Docker命令执行超时"
     except Exception as e:
         return [], f"获取Docker容器失败: {str(e)}"
 
