@@ -13,13 +13,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py .
 COPY templates/ templates/
 
-
-# 创建非root用户
-RUN adduser -D -u 1000 appuser && \
-    chown -R appuser:appuser /app
-
-USER appuser
-
 EXPOSE 3003
 
 CMD ["python", "app.py"]
