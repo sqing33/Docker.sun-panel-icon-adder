@@ -1,14 +1,22 @@
+# --- app.py (完整替换版本) ---
+
 import os
 import requests
 import json
-import docker  # 导入官方 Docker SDK
+import docker
 from flask import Flask, render_template, jsonify, request
 from urllib.parse import urlparse, urljoin
 from dotenv import load_dotenv
+from bs4 import BeautifulSoup, Tag
+from werkzeug.utils import secure_filename
 
 # --- 应用初始化和配置加载 ---
 app = Flask(__name__)
-load_dotenv()  # 加载 .env 文件中的环境变量
+load_dotenv()
+
+BOOKMARKS_DIR = 'bookmarks_history'
+if not os.path.exists(BOOKMARKS_DIR):
+    os.makedirs(BOOKMARKS_DIR)
 
 # API 配置
 LUCKY_API_ENDPOINT = os.getenv('LUCKY_API_ENDPOINT')
@@ -17,7 +25,7 @@ SUNPANEL_API_BASE = os.getenv('SUNPANEL_API_BASE')
 SUNPANEL_API_TOKEN = os.getenv('SUNPANEL_API_TOKEN')
 
 
-# --- 自动检测宿主机 IP ---
+# --- 辅助函数 ---
 def get_host_ip_from_endpoints():
     endpoints_to_check = [
         os.getenv('LUCKY_API_ENDPOINT'),
@@ -39,7 +47,6 @@ def get_host_ip_from_endpoints():
 HOST_IP = get_host_ip_from_endpoints()
 
 
-# --- 数据获取函数 (保持不变) ---
 def get_lucky_proxies():
     if not (LUCKY_API_ENDPOINT and LUCKY_API_TOKEN):
         return [], "Lucky API 端点或 Token 未配置"
@@ -103,11 +110,9 @@ def get_docker_containers():
                             ip = HOST_IP
                         internal_ip = f"http://{ip}:{host_bindings[0]['HostPort']}"
                         break
-
             description_ip = ""
             if internal_ip:
                 description_ip = urlparse(internal_ip).netloc
-
             containers.append({
                 'name':
                 container.name,
@@ -128,14 +133,12 @@ def get_docker_containers():
         return [], f"获取 Docker 容器失败: {str(e)}"
 
 
-# --- 核心合并逻辑 (保持不变) ---
 def merge_sources(docker_containers, lucky_proxies):
     merged_items = {
         c['internal_ip']: c
         for c in docker_containers if c['internal_ip']
     }
     final_list = [c for c in docker_containers if not c['internal_ip']]
-
     for proxy in lucky_proxies:
         ip = proxy['internal_ip']
         if ip and ip in merged_items:
@@ -143,39 +146,119 @@ def merge_sources(docker_containers, lucky_proxies):
             existing_item['name'] = proxy['name']
             existing_item['domain'] = proxy['domain']
             existing_item['external_url'] = proxy['external_url']
-            existing_item['source'].append('Lucky')
+            if 'Lucky' not in existing_item['source']:
+                existing_item['source'].append('Lucky')
         else:
             proxy['source'] = ['Lucky']
             final_list.append(proxy)
-
     final_list.extend(merged_items.values())
     final_list.sort(key=lambda item: item['name'].lower())
     return final_list
 
 
-# --- Flask 路由和视图 ---
+# --- 全新的、更可靠的书签解析逻辑 ---
+def parse_bookmarks_html(file_path):
+    """
+    解析浏览器导出的 HTML 书签文件的新方法。
+    该方法首先提取所有节点（文件夹和书签），然后通过栈来重建层级结构，
+    能可靠地处理不规范的 <p> 标签。
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            soup = BeautifulSoup(f, 'lxml')
+
+        # 找到所有 <dt> 标签，它们是构成书签结构的基本单元
+        all_dts = soup.find_all('dt')
+        if not all_dts:
+            return [], "未在文件中找到有效的书签列表 (<DT> 标签)"
+
+        nodes = []
+        for dt in all_dts:
+            link = dt.find('a', recursive=False)
+            folder = dt.find('h3', recursive=False)
+
+            if link:
+                href = link.get('href')
+                if href and href.startswith(('http://', 'https://')):
+                    title = link.get_text(
+                        strip=True) or urlparse(href).hostname or "无标题"
+                    nodes.append({
+                        'type': 'bookmark',
+                        'name': title,
+                        'domain': urlparse(href).hostname,
+                        'external_url': href,
+                        'internal_ip': '',
+                        'description': href,
+                        'status': 'Imported',
+                        'source': ['Bookmark']
+                    })
+            elif folder:
+                folder_name = folder.get_text(strip=True)
+                # 使用一个特殊的 'level' 属性来标记文件夹的层级，便于后续处理
+                # <H3> 标签的层级与它所在的 <DL> 标签的嵌套层级相关
+                level = len(dt.find_parents('dl'))
+                nodes.append({
+                    'type': 'folder',
+                    'title': folder_name,
+                    'children': [],
+                    'level': level
+                })
+
+        # 使用栈来重建树状结构
+        if not nodes:
+            return [], "解析后未发现任何有效的书签或文件夹"
+
+        # 结果树
+        result_tree = []
+        # 辅助栈，用于追踪当前父文件夹路径
+        parent_stack = []
+
+        for node in nodes:
+            if node['type'] == 'folder':
+                node_level = node.pop('level')  # 取出并删除level
+                # 如果当前文件夹的层级比栈顶文件夹深，则它是栈顶的子文件夹
+                # 如果层级相同或更浅，则需要回退栈
+                while parent_stack and parent_stack[-1]['level'] >= node_level:
+                    parent_stack.pop()
+
+                if not parent_stack:
+                    # 如果栈为空，说明是顶层文件夹
+                    result_tree.append(node)
+                else:
+                    # 否则，是栈顶文件夹的子文件夹
+                    parent_stack[-1]['node']['children'].append(node)
+
+                # 将当前文件夹压入栈中
+                parent_stack.append({'level': node_level, 'node': node})
+
+            elif node['type'] == 'bookmark':
+                if not parent_stack:
+                    # 如果没有父文件夹，则是顶层书签
+                    result_tree.append(node)
+                else:
+                    # 否则，添加到当前父文件夹
+                    parent_stack[-1]['node']['children'].append(node)
+
+        return result_tree, None
+
+    except Exception as e:
+        return [], f"解析书签文件失败: {e}"
+
+
+# --- Flask 路由 (保持不变) ---
 @app.route('/')
 def index():
     lucky_proxies, lucky_error = get_lucky_proxies()
     docker_containers, docker_error = get_docker_containers()
     all_items = merge_sources(docker_containers, lucky_proxies)
-    error = lucky_error or docker_error
-    return render_template('index.html', proxies=all_items, error=error)
-
-
-@app.route('/api/proxies')
-def api_proxies():
-    lucky_proxies, lucky_error = get_lucky_proxies()
-    docker_containers, docker_error = get_docker_containers()
-    all_items = merge_sources(docker_containers, lucky_proxies)
+    error = None
     if lucky_error and docker_error:
-        return jsonify(
-            {'error': f"Lucky: {lucky_error}, Docker: {docker_error}"}), 500
+        error = f"Lucky 错误: {lucky_error} | Docker 错误: {docker_error}"
     elif lucky_error:
-        return jsonify({'error': lucky_error}), 500
+        error = lucky_error
     elif docker_error:
-        return jsonify({'error': docker_error}), 500
-    return jsonify(all_items)
+        error = docker_error
+    return render_template('index.html', proxies=all_items, error=error)
 
 
 @app.route('/api/get_icon_urls')
@@ -185,7 +268,9 @@ def get_icon_urls():
     try:
         parsed_url = urlparse(url)
         base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
-        icon_urls, html_icons = [], []
+        icon_urls = []
+        html_icons = []
+
         common_locations = [
             '/favicon.ico', '/favicon.png', '/favicon.jpg', '/favicon.svg',
             '/apple-touch-icon.png'
@@ -202,6 +287,7 @@ def get_icon_urls():
                     })
             except requests.RequestException:
                 continue
+
         try:
             response = requests.get(url,
                                     timeout=5,
@@ -210,7 +296,7 @@ def get_icon_urls():
                 import re
                 content = response.text
                 patterns = [
-                    r'<link[^>]*rel=["\'](?:icon|shortcut icon)["\'][^>]*href=["\']([^"\']+)["\']',
+                    r'<link[^>]*rel=["\'](?:icon|shortcut icon|apple-touch-icon)["\'][^>]*href=["\']([^"\']+)["\']',
                     r'<meta[^>]*name=["\']msapplication-TileImage["\'][^>]*content=["\']([^"\']+)["\']'
                 ]
                 for pattern in patterns:
@@ -226,11 +312,14 @@ def get_icon_urls():
                         })
         except requests.RequestException:
             pass
-        seen_urls, all_icons = set(), []
+
+        seen_urls = set()
+        all_icons = []
         for icon in icon_urls + html_icons:
             if icon['url'] not in seen_urls:
                 seen_urls.add(icon['url'])
                 all_icons.append(icon)
+
         all_icons.sort(
             key=lambda x: (x['type'] != 'common_location', x['url']))
         return jsonify({'iconUrls': all_icons})
@@ -240,29 +329,22 @@ def get_icon_urls():
 
 @app.route('/api/sunpanel/groups')
 def sunpanel_get_groups():
-    """代理 SunPanel 获取分组列表的 API 请求"""
     if not (SUNPANEL_API_BASE and SUNPANEL_API_TOKEN):
         return jsonify({'error': 'SunPanel API 未在环境变量中配置'}), 500
-
     try:
         url = f"{SUNPANEL_API_BASE}/itemGroup/getList"
         headers = {
             'token': SUNPANEL_API_TOKEN,
             'Content-Type': 'application/json'
         }
-        # **核心修改**: 将 GET 请求改为 POST 请求，并发送一个空的json体
         response = requests.post(url, headers=headers, json={}, timeout=10)
         response.raise_for_status()
-
-        # 增加对空响应的判断
         if not response.text:
             return jsonify({'error': 'SunPanel API 返回了空响应'}), 500
         data = response.json()
-
         if data.get('code') != 0:
             return jsonify({'error': data.get('msg',
                                               '从 SunPanel 获取分组失败')}), 400
-
         return jsonify(data.get('data', {}).get('list', []))
     except requests.exceptions.RequestException as e:
         return jsonify({'error': f'连接 SunPanel API 失败: {e}'}), 500
@@ -306,9 +388,45 @@ def sunpanel_create_item():
         return jsonify({'error': f'服务器内部错误: {str(e)}'}), 500
 
 
+@app.route('/api/bookmarks/upload', methods=['POST'])
+def upload_bookmark():
+    if 'bookmarkFile' not in request.files:
+        return jsonify({'error': '没有找到文件'}), 400
+    file = request.files['bookmarkFile']
+    if file.filename == '': return jsonify({'error': '没有选择文件'}), 400
+    if file and file.filename.endswith('.html'):
+        filename = secure_filename(file.filename)
+        filepath = os.path.join(BOOKMARKS_DIR, filename)
+        file.save(filepath)
+        bookmarks, error = parse_bookmarks_html(filepath)
+        if error: return jsonify({'error': error}), 500
+        return jsonify(bookmarks)
+    return jsonify({'error': '无效的文件格式, 请上传 .html 文件'}), 400
+
+
+@app.route('/api/bookmarks/history')
+def get_bookmark_history():
+    try:
+        files = [f for f in os.listdir(BOOKMARKS_DIR) if f.endswith('.html')]
+        return jsonify(
+            sorted(
+                files,
+                key=lambda f: os.path.getmtime(os.path.join(BOOKMARKS_DIR, f)),
+                reverse=True))
+    except Exception as e:
+        return jsonify({'error': f"读取历史记录失败: {e}"}), 500
+
+
+@app.route('/api/bookmarks/load/<filename>')
+def load_bookmark_file(filename):
+    s_filename = secure_filename(filename)
+    filepath = os.path.join(BOOKMARKS_DIR, s_filename)
+    if not os.path.exists(filepath): return jsonify({'error': '文件未找到'}), 404
+    bookmarks, error = parse_bookmarks_html(filepath)
+    if error: return jsonify({'error': error}), 500
+    return jsonify(bookmarks)
+
+
 # --- 主程序入口 ---
 if __name__ == '__main__':
-    try:
-        app.run(host='0.0.0.0', port=3003, debug=True, use_reloader=False)
-    finally:
-        pass
+    app.run(host='0.0.0.0', port=3003, debug=False)

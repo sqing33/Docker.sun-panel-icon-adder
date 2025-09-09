@@ -3,3 +3,5 @@ requests
 flask
 python-dotenv
 docker
+beautifulsoup4
+lxml

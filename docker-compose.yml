@@ -12,3 +12,4 @@ services:
       - LUCKY_API_TOKEN=
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./bookmarks_history:/app/bookmarks_history
