@@ -11,6 +11,11 @@
 - **文件夹分类**: 支持书签文件夹结构的识别和分类显示
 - **历史记录**: 保留导入的书签文件历史记录
 
+## 项目地址
+
+- **Github**：https://github.com/sqing33/Docker.sun-panel-icon-adder
+- **DockerHub**：https://hub.docker.com/r/sqing33/sun-panel-icon-adder
+
 ## 项目结构
 
 ```
@@ -96,9 +101,9 @@ python app.py
 
 ## 使用截图
 
-<img width="1920" height="963" alt="PixPin_2025-09-09_20-43-14" src="https://github.com/user-attachments/assets/74f9f4a3-42ff-41ae-b686-67bbf7bdb8da" />
-<img width="1920" height="963" alt="PixPin_2025-09-09_20-43-51" src="https://github.com/user-attachments/assets/31b1ad9c-bfa5-483a-9da7-7aef6dbb1fa7" />
-<img width="1920" height="963" alt="PixPin_2025-09-09_20-44-27" src="https://github.com/user-attachments/assets/dcc48bf3-c83b-4f9d-9727-12396bdb37b9" />
+<img alt="PixPin_2025-09-09_20-43-14" src="https://github.com/user-attachments/assets/74f9f4a3-42ff-41ae-b686-67bbf7bdb8da" />
+<img alt="PixPin_2025-09-09_20-43-51" src="https://github.com/user-attachments/assets/31b1ad9c-bfa5-483a-9da7-7aef6dbb1fa7" />
+<img alt="PixPin_2025-09-09_20-44-27" src="https://github.com/user-attachments/assets/dcc48bf3-c83b-4f9d-9727-12396bdb37b9" />
 
 
 ## API 接口
