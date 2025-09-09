@@ -103,26 +103,26 @@ def index():
     # 获取Lucky代理和Docker容器，合并列表
     lucky_proxies, lucky_error = get_lucky_proxies()
     docker_containers, docker_error = get_docker_containers()
-    
+
     # 合并列表并去重（基于域名/名称）
     all_items = []
     seen_names = set()
-    
+
     # 先添加Lucky代理
     for proxy in lucky_proxies:
         if proxy['domain'] not in seen_names:
             seen_names.add(proxy['domain'])
             all_items.append(proxy)
-    
+
     # 再添加Docker容器（不去重已存在的Lucky项目）
     for container in docker_containers:
         if container['domain'] not in seen_names:
             seen_names.add(container['domain'])
             all_items.append(container)
-    
+
     # 如果有错误，只显示第一个错误
     error = lucky_error or docker_error
-    
+
     return render_template('index.html', proxies=all_items, error=error)
 
 
@@ -131,30 +131,31 @@ def api_proxies():
     # 获取Lucky代理和Docker容器，合并列表
     lucky_proxies, lucky_error = get_lucky_proxies()
     docker_containers, docker_error = get_docker_containers()
-    
+
     # 合并列表并去重（基于域名/名称）
     all_items = []
     seen_names = set()
-    
+
     # 先添加Lucky代理
     for proxy in lucky_proxies:
         if proxy['domain'] not in seen_names:
             seen_names.add(proxy['domain'])
             all_items.append(proxy)
-    
+
     # 再添加Docker容器（不去重已存在的Lucky项目）
     for container in docker_containers:
         if container['domain'] not in seen_names:
             seen_names.add(container['domain'])
             all_items.append(container)
-    
+
     if lucky_error and docker_error:
-        return jsonify({'error': f"Lucky: {lucky_error}, Docker: {docker_error}"}), 500
+        return jsonify(
+            {'error': f"Lucky: {lucky_error}, Docker: {docker_error}"}), 500
     elif lucky_error:
         return jsonify({'error': lucky_error}), 500
     elif docker_error:
         return jsonify({'error': docker_error}), 500
-        
+
     return jsonify(all_items)
 
 
@@ -253,15 +254,15 @@ def get_docker_containers():
         # 使用Docker API通过Unix socket获取容器信息
         import socket
         import json
-        
+
         # 创建Unix socket连接
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.connect('/var/run/docker.sock')
-        
+
         # 发送HTTP请求到Docker API
         request = "GET /containers/json HTTP/1.1\r\nHost: localhost\r\n\r\n"
         sock.send(request.encode())
-        
+
         # 读取响应
         response = b''
         while True:
@@ -269,18 +270,18 @@ def get_docker_containers():
             if not data:
                 break
             response += data
-        
+
         sock.close()
-        
+
         # 解析HTTP响应
         headers, body = response.split(b'\r\n\r\n', 1)
         containers_data = json.loads(body.decode())
-        
+
         containers = []
         for container in containers_data:
             name = container['Names'][0].lstrip('/')
             image = container['Image']
-            
+
             # 解析端口信息
             internal_ip = ""
             ports_info = container.get('Ports', [])
@@ -293,22 +294,22 @@ def get_docker_containers():
                             ip = 'localhost'
                         internal_ip = f"{ip}:{port_info['PublicPort']}"
                         break
-            
+
             containers.append({
                 'name': name,
                 'domain': name,
                 'external_url': '',  # 外部地址留空
                 'internal_ip': internal_ip,
-                'description': f"{image} ({internal_ip if internal_ip else '无端口暴露'})",
+                'description':
+                f"{image} ({internal_ip if internal_ip else '无端口暴露'})",
                 'status': '运行中',
                 'source': 'docker'  # 标记来源为Docker
             })
-        
+
         return containers, None
-        
+
     except Exception as e:
         return [], f"获取Docker容器失败: {str(e)}"
-
 
 
 @app.route('/api/sunpanel/item/create', methods=['POST'])
@@ -319,7 +320,6 @@ def sunpanel_create_item():
         data = request.get_json()
         if not data:
             return jsonify({'error': 'No data provided'}), 400
-
 
         # 转发请求到 SunPanel API
         sunpanel_url = f"{SUNPANEL_API_BASE}/item/create"
@@ -367,6 +367,6 @@ def sunpanel_create_item():
 
 if __name__ == '__main__':
     try:
-        app.run(host='0.0.0.0', port=3003, debug=True)
+        app.run(host='0.0.0.0', port=3003, debug=True, use_reloader=False)
     finally:
         pass
