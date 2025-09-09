@@ -249,51 +249,35 @@ def get_icon_urls():
 
 
 def get_docker_containers():
-    """获取 Docker 容器列表"""
+    """获取 Docker 容器列表 (使用官方 SDK)"""
     try:
-        # 使用Docker API通过Unix socket获取容器信息
-        import socket
-        import json
+        # 导入 docker 库
+        import docker
 
-        # 创建Unix socket连接
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.connect('/var/run/docker.sock')
+        # 通过 socket 初始化客户端
+        client = docker.from_env()
 
-        # 发送HTTP请求到Docker API
-        request = "GET /containers/json HTTP/1.1\r\nHost: localhost\r\n\r\n"
-        sock.send(request.encode())
-
-        # 读取响应
-        response = b''
-        while True:
-            data = sock.recv(4096)
-            if not data:
-                break
-            response += data
-
-        sock.close()
-
-        # 解析HTTP响应
-        headers, body = response.split(b'\r\n\r\n', 1)
-        containers_data = json.loads(body.decode())
+        # 获取所有正在运行的容器
+        running_containers = client.containers.list()
 
         containers = []
-        for container in containers_data:
-            name = container['Names'][0].lstrip('/')
-            image = container['Image']
+        for container in running_containers:
+            name = container.name
+            image = container.image.tags[0] if container.image.tags else 'N/A'
 
             # 解析端口信息
             internal_ip = ""
-            ports_info = container.get('Ports', [])
-            if ports_info:
-                # 获取第一个公开的端口
-                for port_info in ports_info:
-                    if port_info.get('PublicPort'):
-                        ip = port_info.get('IP', 'localhost')
+            # container.ports 是一个字典，例如 {'80/tcp': [{'HostIp': '0.0.0.0', 'HostPort': '8080'}]}
+            if container.ports:
+                # 遍历所有端口映射
+                for internal_port, host_bindings in container.ports.items():
+                    if host_bindings:
+                        # 获取第一个绑定
+                        ip = host_bindings[0].get('HostIp', 'localhost')
                         if ip == '0.0.0.0':
-                            ip = 'localhost'
-                        internal_ip = f"{ip}:{port_info['PublicPort']}"
-                        break
+                            ip = 'localhost'  # 或者你可以尝试获取宿主机的真实IP
+                        internal_ip = f"{ip}:{host_bindings[0]['HostPort']}"
+                        break  # 找到第一个就跳出
 
             containers.append({
                 'name': name,
@@ -302,13 +286,16 @@ def get_docker_containers():
                 'internal_ip': internal_ip,
                 'description':
                 f"{image} ({internal_ip if internal_ip else '无端口暴露'})",
-                'status': '运行中',
+                'status': '运行中',  # .list() 默认只返回运行中的
                 'source': 'docker'  # 标记来源为Docker
             })
 
         return containers, None
 
+    except ImportError:
+        return [], "Docker SDK 未安装。请将 'docker' 添加到 requirements.txt 并重新构建镜像。"
     except Exception as e:
+        # 捕获更具体的错误，例如无法连接到 Docker socket
         return [], f"获取Docker容器失败: {str(e)}"
 
 
