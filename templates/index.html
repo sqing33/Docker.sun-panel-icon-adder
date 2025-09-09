@@ -1,21 +1,22 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Sun-Panel 图标添加工具</title>
   <!-- 引入 Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- 引入 Font Awesome 图标（用于排序、操作按钮） -->
+  <!-- 引入 Font Awesome 图标 -->
   <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
-  
-  <!-- 自定义 Tailwind 配置（可选，用于统一主题色） -->
+
+  <!-- 自定义 Tailwind 配置 -->
   <script>
     tailwind.config = {
       theme: {
         extend: {
           colors: {
-            primary: '#409EFF', // 类似 Element Plus 的主题蓝
+            primary: '#409EFF',
             success: '#67C23A',
             warning: '#E6A23C',
             danger: '#F56C6C',
@@ -27,158 +28,200 @@
       }
     }
   </script>
-  
+
 </head>
+
 <body class="bg-gray-50">
   <div class="h-screen flex flex-col">
     <div class="max-w-6xl mx-auto bg-white rounded-lg shadow-md overflow-hidden flex-1 flex flex-col m-4">
-    <!-- 表格标题和操作区 -->
-    <div class="p-4 border-b flex flex-col md:flex-row md:items-center justify-between gap-4">
-      <h2 class="text-lg font-semibold text-gray-800">Sun-Panel 图标添加工具</h2>
-      <div class="flex gap-2">
-        <button onclick="refreshData()" class="px-4 py-2 bg-primary text-white rounded hover:bg-primary/90 transition">
-          <i class="fa fa-refresh mr-1"></i> 刷新数据
-        </button>
-      </div>
-    </div>
-
-    {% if error %}
-    <!-- 错误提示 -->
-    <div class="bg-red-50 border border-red-200 rounded-md p-4 m-4">
-      <div class="flex">
-        <div class="flex-shrink-0">
-          <i class="fa fa-exclamation-circle text-red-400"></i>
+      <!-- 表格标题和操作区 -->
+      <div class="p-4 border-b flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <h2 class="text-lg font-semibold text-gray-800">Sun-Panel 图标添加工具</h2>
+        <div class="flex gap-2">
+          <button onclick="refreshData()"
+            class="px-4 py-2 bg-primary text-white rounded hover:bg-primary/90 transition">
+            <i class="fa fa-refresh mr-1"></i> 刷新数据
+          </button>
         </div>
-        <div class="ml-3">
-          <h3 class="text-sm font-medium text-red-800">错误</h3>
-          <div class="mt-2 text-sm text-red-700">
-            <p>{{ error }}</p>
+      </div>
+
+      {% if error %}
+      <!-- 错误提示 -->
+      <div class="bg-red-50 border border-red-200 rounded-md p-4 m-4">
+        <div class="flex">
+          <div class="flex-shrink-0">
+            <i class="fa fa-exclamation-circle text-red-400"></i>
+          </div>
+          <div class="ml-3">
+            <h3 class="text-sm font-medium text-red-800">错误</h3>
+            <div class="mt-2 text-sm text-red-700">
+              <p>{{ error }}</p>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-    {% endif %}
+      {% endif %}
 
-    <!-- 表格容器（内部滚动） -->
-    <div class="flex-1 overflow-auto">
-      <table class="w-full text-sm">
-        <!-- 表头 -->
-        <thead>
-          <tr class="bg-gray-50 border-b">
-            <th class="px-6 py-3 text-left font-semibold text-gray-700">
-              <div class="flex items-center gap-1">
-                代理名称
-              </div>
-            </th>
-            <th class="px-6 py-3 text-left font-semibold text-gray-700">
-              <div class="flex items-center gap-1">
-                内网 IP
-              </div>
-            </th>
-            <th class="px-6 py-3 text-left font-semibold text-gray-700">外网地址</th>
-            <th class="px-6 py-3 text-left font-semibold text-gray-700">状态</th>
-            <th class="px-6 py-3 text-center font-semibold text-gray-700">操作</th>
-          </tr>
-        </thead>
+      <!-- 表格容器（内部滚动） -->
+      <div class="flex-1 overflow-auto">
+        <table class="w-full text-sm">
+          <!-- 表头 -->
+          <thead>
+            <tr class="bg-gray-50 border-b">
+              <th class="px-6 py-3 text-left font-semibold text-gray-700">容器/代理名称</th>
+              <th class="px-6 py-3 text-left font-semibold text-gray-700">内网 IP</th>
+              <th class="px-6 py-3 text-left font-semibold text-gray-700">外网地址</th>
+              <th class="px-6 py-3 text-left font-semibold text-gray-700">状态</th>
+              <th class="px-6 py-3 text-left font-semibold text-gray-700">来源</th>
+              <th class="px-6 py-3 text-center font-semibold text-gray-700">操作</th>
+            </tr>
+          </thead>
 
-        <!-- 表体 -->
-        <tbody id="proxyTableBody">
-          {% for proxy in proxies %}
-          <tr class="border-b hover:bg-gray-50 transition even:bg-gray-50/50">
-            <td class="px-6 py-4">{{ proxy.name }}</td>
-            <td class="px-6 py-4">{{ proxy.internal_ip }}</td>
-            <td class="px-6 py-4">{{ proxy.external_url }}</td>
-            <td class="px-6 py-4">
-              {% if proxy.status == '运行中' %}
-              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-success/10 text-success">
-                <span class="w-1.5 h-1.5 rounded-full bg-success mr-1"></span>{{ proxy.status }}
-              </span>
-              {% else %}
-              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                <span class="w-1.5 h-1.5 rounded-full bg-gray-400 mr-1"></span>{{ proxy.status }}
-              </span>
-              {% endif %}
-            </td>
-            <td class="px-6 py-4 text-center">
-              <div class="flex justify-center gap-2">
-                <a href="{{ proxy.external_url }}" target="_blank" class="text-primary hover:text-primary/80" title="访问">
-                  <i class="fa fa-external-link"></i>
-                </a>
-                <button class="text-danger hover:text-danger/80" title="复制地址" onclick="copyToClipboard('{{ proxy.external_url }}')">
-                  <i class="fa fa-copy"></i>
-                </button>
-                <button class="bg-success text-white px-2 py-1 rounded hover:bg-success/80 text-xs" title="添加到SunPanel" onclick="openSunPanelModal('{{ proxy.name }}', '{{ proxy.domain }}', '{{ proxy.external_url }}', '{{ proxy.internal_ip }}', '{{ proxy.description }}')">
-                  添加
-                </button>
-              </div>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+          <!-- 表体 -->
+          <tbody id="proxyTableBody">
+            {% for proxy in proxies %}
+            <tr class="border-b hover:bg-gray-50 transition even:bg-gray-50/50">
+              <td class="px-6 py-4">{{ proxy.name }}</td>
+              <td class="px-6 py-4">{{ proxy.internal_ip }}</td>
+              <td class="px-6 py-4">{{ proxy.external_url }}</td>
+              <td class="px-6 py-4">
+                {% if proxy.status == '运行中' %}
+                <span
+                  class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-success/10 text-success">
+                  <span class="w-1.5 h-1.5 rounded-full bg-success mr-1"></span>{{ proxy.status }}
+                </span>
+                {% else %}
+                <span
+                  class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                  <span class="w-1.5 h-1.5 rounded-full bg-gray-400 mr-1"></span>{{ proxy.status }}
+                </span>
+                {% endif %}
+              </td>
+              <td class="px-6 py-4">
+                <div class="flex items-center gap-1">
+                  {% for src in proxy.source %}
+                  {% if src == 'Docker' %}
+                  <span
+                    class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-100 text-cyan-800">
+                    Docker
+                  </span>
+                  {% elif src == 'Lucky' %}
+                  <span
+                    class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                    Lucky
+                  </span>
+                  {% endif %}
+                  {% endfor %}
+                </div>
+              </td>
+              <td class="px-6 py-4 text-center">
+                <div class="flex justify-center gap-2">
+                  <a href="{{ proxy.external_url or proxy.internal_ip }}" target="_blank"
+                    class="text-primary hover:text-primary/80" title="访问">
+                    <i class="fa fa-external-link"></i>
+                  </a>
+                  <button class="text-danger hover:text-danger/80" title="复制地址"
+                    onclick="copyToClipboard('{{ proxy.external_url or proxy.internal_ip }}')">
+                    <i class="fa fa-copy"></i>
+                  </button>
+                  <button class="bg-success text-white px-2 py-1 rounded hover:bg-success/80 text-xs"
+                    title="添加到SunPanel"
+                    onclick="openSunPanelModal('{{ proxy.name }}', '{{ proxy.domain }}', '{{ proxy.external_url }}', '{{ proxy.internal_ip }}', '{{ proxy.description }}')">
+                    添加
+                  </button>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
 
-    <!-- 分页 -->
-    <div class="px-6 py-4 border-t flex flex-col sm:flex-row justify-between items-center gap-4">
-      <div class="text-sm text-gray-500" id="proxyCount">
-        显示 1 至 {{ proxies|length }} 条，共 {{ proxies|length }} 条
+      <!-- 分页 -->
+      <div class="px-6 py-4 border-t flex flex-col sm:flex-row justify-between items-center gap-4">
+        <div class="text-sm text-gray-500" id="proxyCount">
+          显示 1 至 {{ proxies|length }} 条，共 {{ proxies|length }} 条
+        </div>
       </div>
     </div>
   </div>
-</div>
 
   <!-- SunPanel 模态框 -->
   <div id="sunPanelModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
     <div class="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
       <div class="p-6">
         <h3 class="text-lg font-semibold text-gray-800 mb-4">添加到 SunPanel</h3>
-        
+
         <form id="sunPanelForm" class="space-y-4">
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">唯一标识</label>
-            <input type="text" name="onlyName" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary" required>
+            <input type="text" name="onlyName"
+              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+              required>
           </div>
-          
+
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">标题</label>
-            <input type="text" name="title" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary" required>
+            <input type="text" name="title"
+              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+              required>
           </div>
-          
+
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">地址</label>
-            <input type="url" name="url" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary" required>
+            <input type="url" name="url"
+              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+              required>
           </div>
-          
+
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">内网地址</label>
-            <input type="text" name="lanUrl" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+            <input type="text" name="lanUrl"
+              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
           </div>
-          
+
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">图标地址</label>
-            <select name="iconUrl" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary mb-2" id="iconUrlSelect">
+            <select name="iconUrl"
+              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary mb-2"
+              id="iconUrlSelect">
               <option value="">选择图标...</option>
             </select>
-            <input type="url" placeholder="或手动输入图标地址" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary" id="manualIconUrl" oninput="updateIconSelection(this.value)">
+            <input type="url" placeholder="或手动输入图标地址"
+              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+              id="manualIconUrl" oninput="updateIconSelection(this.value)">
             <div class="mt-2 grid grid-cols-6 gap-2" id="iconPreviewGrid"></div>
             <div id="noIconsMessage" class="text-sm text-gray-500 mt-2 hidden">未检测到可用图标</div>
           </div>
-          
+
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">描述</label>
-            <textarea name="description" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary" rows="3"></textarea>
+            <textarea name="description"
+              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+              rows="3"></textarea>
           </div>
-          
+
+          <div>
+            <label for="groupSelect" class="block text-sm font-medium text-gray-700 mb-1">分组</label>
+            <select name="itemGroupID" id="groupSelect"
+              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+              <option value="">加载中...</option>
+            </select>
+          </div>
+
           <div class="flex items-center">
-            <input type="checkbox" name="isSaveIcon" id="isSaveIcon" class="rounded border-gray-300 text-primary focus:ring-primary" checked>
+            <input type="checkbox" name="isSaveIcon" id="isSaveIcon"
+              class="rounded border-gray-300 text-primary focus:ring-primary" checked>
             <label for="isSaveIcon" class="ml-2 text-sm text-gray-700">保存图标到SunPanel本地</label>
           </div>
-          
+
           <div class="flex gap-2 pt-4">
-            <button type="button" onclick="closeSunPanelModal()" class="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition">
+            <button type="button" onclick="closeSunPanelModal()"
+              class="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition">
               取消
             </button>
-            <button type="submit" class="flex-1 px-4 py-2 bg-primary text-white rounded-md hover:bg-primary/90 transition">
+            <button type="submit"
+              class="flex-1 px-4 py-2 bg-primary text-white rounded-md hover:bg-primary/90 transition">
               添加
             </button>
           </div>
@@ -188,99 +231,116 @@
   </div>
 
   <script>
-    let currentProxyData = {};
-    
     function openSunPanelModal(name, domain, externalUrl, internalIp, description) {
-      currentProxyData = { name, domain, externalUrl, internalIp, description };
-      
-      // 填充表单默认值
-      document.querySelector('input[name="onlyName"]').value = domain.replace(/[^a-zA-Z0-9]/g, '_');
+      // **核心修改**: 使用 name (容器/代理名称) 作为唯一标识的默认值
+      document.querySelector('input[name="onlyName"]').value = name.replace(/[^a-zA-Z0-9\-_]/g, '_');
+
       document.querySelector('input[name="title"]').value = name;
-      document.querySelector('input[name="url"]').value = externalUrl;
-      
-      // 内网地址前面加上http://
-      const internalUrl = internalIp.includes('://') ? internalIp : `http://${internalIp}`;
+      const internalUrl = internalIp && !internalIp.includes('://') ? `http://${internalIp}` : internalIp;
+      document.querySelector('input[name="url"]').value = externalUrl || internalUrl;
       document.querySelector('input[name="lanUrl"]').value = internalUrl;
-      
-      // 设置描述字段为IP:port
       document.querySelector('textarea[name="description"]').value = description;
-      
-      // 获取所有图标地址，优先使用内网地址
-      const iconUrlToCheck = internalUrl.includes('://') ? internalUrl : externalUrl;
+
+      const iconUrlToCheck = internalUrl && internalUrl.includes('localhost') ? (externalUrl || internalUrl) : (internalUrl || externalUrl);
+      const saveIconCheckbox = document.getElementById('isSaveIcon');
+
+      // 获取并填充分组列表
+      const groupSelect = document.getElementById('groupSelect');
+      groupSelect.innerHTML = '<option value="">加载中...</option>';
+      fetch('/api/sunpanel/groups')
+        .then(response => response.json())
+        .then(groups => {
+          groupSelect.innerHTML = ''; // 清空
+          if (groups && groups.length > 0) {
+            groups.forEach(group => {
+              const option = document.createElement('option');
+              option.value = group.itemGroupID;
+              option.textContent = group.title;
+              groupSelect.appendChild(option);
+            });
+            if (groupSelect.options.length > 0) {
+              groupSelect.value = groupSelect.options[0].value;
+            }
+          } else {
+            groupSelect.innerHTML = '<option value="">无可用分组</option>';
+          }
+        })
+        .catch(error => {
+          console.error('获取分组失败:', error);
+          groupSelect.innerHTML = '<option value="">加载分组失败</option>';
+        });
+
+      // 获取图标
       fetch(`/api/get_icon_urls?url=${encodeURIComponent(iconUrlToCheck)}`)
         .then(response => response.json())
         .then(data => {
           const select = document.getElementById('iconUrlSelect');
           const previewGrid = document.getElementById('iconPreviewGrid');
           const noIconsMessage = document.getElementById('noIconsMessage');
-          
-          // 清空现有选项和图标
           select.innerHTML = '<option value="">选择图标...</option>';
           previewGrid.innerHTML = '';
           noIconsMessage.classList.add('hidden');
-          
+
           if (data.iconUrls && data.iconUrls.length > 0) {
-            data.iconUrls.forEach((icon, index) => {
-              // 添加到下拉框
+            saveIconCheckbox.checked = true;
+            let firstIconSelected = false;
+
+            data.iconUrls.forEach((icon) => {
               const option = document.createElement('option');
               option.value = icon.url;
-              option.textContent = icon.name || `图标 ${index + 1}`;
+              option.textContent = icon.name || `图标`;
               select.appendChild(option);
-              
-              // 添加到预览网格
+
               const previewItem = document.createElement('div');
               previewItem.className = 'cursor-pointer aspect-square w-full border-2 border-gray-200 rounded-lg hover:border-primary transition-all flex items-center justify-center bg-gray-50';
               previewItem.title = icon.name || icon.url;
-              previewItem.onclick = () => {
-                select.value = icon.url;
-                // 高亮选中的预览
-                previewGrid.querySelectorAll('div').forEach(item => 
-                  item.classList.remove('border-primary', 'bg-blue-100', 'scale-105'));
-                previewItem.classList.add('border-primary', 'bg-blue-100', 'scale-105');
-              };
-              
+
               const img = document.createElement('img');
               img.src = icon.url;
               img.className = 'w-10 h-10 object-contain';
-              img.onerror = () => {
-                previewItem.remove(); // 移除加载失败的图标
+
+              img.onload = () => {
+                if (!firstIconSelected) {
+                  select.value = icon.url;
+                  previewItem.classList.add('border-primary', 'bg-blue-100', 'scale-105');
+                  firstIconSelected = true;
+                }
               };
-              
+              img.onerror = () => { previewItem.remove(); };
+
+              previewItem.onclick = () => {
+                select.value = icon.url;
+                previewGrid.querySelectorAll('div').forEach(item =>
+                  item.classList.remove('border-primary', 'bg-blue-100', 'scale-105'));
+                previewItem.classList.add('border-primary', 'bg-blue-100', 'scale-105');
+              };
+
               previewItem.appendChild(img);
               previewGrid.appendChild(previewItem);
             });
-            
-            // 自动选择第一个图标
-            if (data.iconUrls[0]) {
-              select.value = data.iconUrls[0].url;
-              previewGrid.firstChild?.classList.add('border-primary', 'bg-blue-100', 'scale-105');
-            }
           } else {
-            // 如果没有找到图标，显示提示信息
             noIconsMessage.classList.remove('hidden');
-            select.value = `${externalUrl}/favicon.ico`;
+            select.value = `${externalUrl || internalUrl}/favicon.ico`;
+            saveIconCheckbox.checked = false;
           }
         })
         .catch(() => {
-          const select = document.getElementById('iconUrlSelect');
-          const noIconsMessage = document.getElementById('noIconsMessage');
-          noIconsMessage.classList.remove('hidden');
-          select.value = `${externalUrl}/favicon.ico`;
+          document.getElementById('noIconsMessage').classList.remove('hidden');
+          document.getElementById('iconUrlSelect').value = `${externalUrl || internalUrl}/favicon.ico`;
+          saveIconCheckbox.checked = false;
         });
-      
+
       document.getElementById('sunPanelModal').classList.remove('hidden');
     }
-    
+
     function closeSunPanelModal() {
       document.getElementById('sunPanelModal').classList.add('hidden');
       document.getElementById('sunPanelForm').reset();
     }
-    
+
     function updateIconSelection(value) {
       const select = document.getElementById('iconUrlSelect');
-      // 只有有效的URL才更新选择框
       if (value && (value.startsWith('http://') || value.startsWith('https://'))) {
-        // 检查是否已经是选项，如果不是则添加
         let optionExists = false;
         for (let i = 0; i < select.options.length; i++) {
           if (select.options[i].value === value) {
@@ -295,15 +355,14 @@
           select.appendChild(option);
         }
         select.value = value;
-        // 清除预览图的高亮
-        document.getElementById('iconPreviewGrid').querySelectorAll('div').forEach(item => 
+        document.getElementById('iconPreviewGrid').querySelectorAll('div').forEach(item =>
           item.classList.remove('border-primary', 'bg-blue-100', 'scale-105')
         );
       } else if (!value) {
         select.value = '';
       }
     }
-    
+
     async function addToSunPanel(formData) {
       const payload = {
         onlyName: formData.onlyName,
@@ -312,51 +371,47 @@
         lanUrl: formData.lanUrl || '',
         iconUrl: formData.iconUrl || '',
         description: formData.description || '',
-        isSaveIcon: document.getElementById('isSaveIcon').checked
+        isSaveIcon: document.getElementById('isSaveIcon').checked,
+        itemGroupID: parseInt(formData.itemGroupID, 10)
       };
-      
+
       try {
-        // 使用本地代理端点解决 CORS 问题
         const response = await fetch('/api/sunpanel/item/create', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
-        
+
         if (!response.ok) {
           const errorData = await response.json();
-          // 显示详细的错误信息
-          const errorMessage = errorData.details ? 
-            `${errorData.error || '操作失败'} (${errorData.details})` : 
-            errorData.error || `HTTP error! status: ${response.status}`;
+          const errorMessage = errorData.error || `HTTP error! status: ${response.status}`;
           throw new Error(errorMessage);
         }
-        
+
         return await response.json();
       } catch (error) {
         console.error('添加到 SunPanel 失败:', error);
         throw error;
       }
     }
-    
-    document.getElementById('sunPanelForm').addEventListener('submit', async function(e) {
+
+    document.getElementById('sunPanelForm').addEventListener('submit', async function (e) {
       e.preventDefault();
-      
+
       const formData = {
         onlyName: this.onlyName.value,
         title: this.title.value,
         url: this.url.value,
         lanUrl: this.lanUrl.value,
-        iconUrl: this.iconUrl.value,
-        description: this.description.value
+        iconUrl: this.iconUrl.value || document.getElementById('manualIconUrl').value,
+        description: this.description.value,
+        itemGroupID: this.itemGroupID.value
       };
-      
+
       const submitBtn = this.querySelector('button[type="submit"]');
       submitBtn.disabled = true;
       submitBtn.textContent = '添加中...';
-      
+
       try {
         await addToSunPanel(formData);
         alert('成功添加到 SunPanel!');
@@ -368,26 +423,16 @@
         submitBtn.textContent = '添加';
       }
     });
-    
+
     function refreshData() {
-      fetch('/api/proxies')
-        .then(response => response.json())
-        .then(data => {
-          if (data.error) {
-            alert('刷新失败: ' + data.error);
-            return;
-          }
-          
-          // 重新加载页面以显示新数据
-          location.reload();
-        })
-        .catch(error => {
-          console.error('刷新错误:', error);
-          alert('刷新失败，请检查控制台日志');
-        });
+      location.reload();
     }
 
     function copyToClipboard(text) {
+      if (!text) {
+        alert('没有可复制的地址');
+        return;
+      }
       navigator.clipboard.writeText(text)
         .then(() => {
           alert('已复制到剪贴板: ' + text);
@@ -399,4 +444,5 @@
     }
   </script>
 </body>
+
 </html>

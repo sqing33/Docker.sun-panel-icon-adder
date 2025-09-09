@@ -1,153 +1,173 @@
 import os
 import requests
 import json
-import tempfile
-import shutil
-import subprocess
-from flask import Flask, render_template, jsonify, request, send_file
+import docker  # 导入官方 Docker SDK
+from flask import Flask, render_template, jsonify, request
 from urllib.parse import urlparse, urljoin
 from dotenv import load_dotenv
 
+# --- 应用初始化和配置加载 ---
 app = Flask(__name__)
-load_dotenv()  # 加载 .env 文件
+load_dotenv()  # 加载 .env 文件中的环境变量
 
-# Lucky API 配置
+# API 配置
 LUCKY_API_ENDPOINT = os.getenv('LUCKY_API_ENDPOINT')
 LUCKY_API_TOKEN = os.getenv('LUCKY_API_TOKEN')
-
-# SunPanel API 配置
 SUNPANEL_API_BASE = os.getenv('SUNPANEL_API_BASE')
 SUNPANEL_API_TOKEN = os.getenv('SUNPANEL_API_TOKEN')
 
 
-def get_lucky_proxies():
-    """获取 Lucky 反向代理规则列表"""
-    if not (LUCKY_API_ENDPOINT and LUCKY_API_TOKEN):
-        return [], "Lucky API 端点或Token未在环境变量中配置"
+# --- 自动检测宿主机 IP ---
+def get_host_ip_from_endpoints():
+    endpoints_to_check = [
+        os.getenv('LUCKY_API_ENDPOINT'),
+        os.getenv('SUNPANEL_API_BASE')
+    ]
+    for url_string in endpoints_to_check:
+        if not url_string: continue
+        try:
+            parsed_url = urlparse(url_string)
+            if parsed_url.hostname:
+                print(f"自动检测到宿主机 IP: {parsed_url.hostname}")
+                return parsed_url.hostname
+        except Exception:
+            continue
+    print("警告：未能自动检测到宿主机 IP。")
+    return None
 
+
+HOST_IP = get_host_ip_from_endpoints()
+
+
+# --- 数据获取函数 (保持不变) ---
+def get_lucky_proxies():
+    if not (LUCKY_API_ENDPOINT and LUCKY_API_TOKEN):
+        return [], "Lucky API 端点或 Token 未配置"
     headers = {
         'openToken': LUCKY_API_TOKEN,
-        'User-Agent': 'Lucky-Proxy-Table/1.0'
+        'User-Agent': 'Sun-Panel-Icon-Adder/1.0'
     }
-
     try:
         api_url = f"{LUCKY_API_ENDPOINT.rstrip('/')}/api/webservice/rules"
         response = requests.get(api_url, headers=headers, timeout=10)
         response.raise_for_status()
         lucky_data = response.json()
-
         all_rules = []
         if isinstance(lucky_data.get('ruleList'), list):
             for rule_group in lucky_data['ruleList']:
                 if isinstance(rule_group.get('ProxyList'), list):
                     all_rules.extend(rule_group['ProxyList'])
-
-        if not all_rules:
-            return [], "在Lucky API的响应中未能找到任何'ProxyList'"
-
+        if not all_rules: return [], "未找到任何'ProxyList'"
         simplified_proxies = []
         for rule in all_rules:
-            if (rule.get('Domains') and isinstance(rule.get('Domains'), list)
-                    and rule['Domains'] and rule.get('Locations')
-                    and isinstance(rule.get('Locations'), list)
-                    and rule['Locations']):
-
-                domain = rule['Domains'][0]
-                name = rule.get('Remark') or domain
-                full_url = f"https://{domain}"
+            if (rule.get('Domains') and rule.get('Locations')):
                 lan_url = rule['Locations'][0]
-
-                # 解析内网地址（保留端口号）
+                if not lan_url.startswith(('http://', 'https://')):
+                    lan_url = f"http://{lan_url}"
                 parsed_url = urlparse(lan_url)
-                if parsed_url.hostname and parsed_url.port:
-                    lan_host = f"{parsed_url.hostname}:{parsed_url.port}"
-                elif parsed_url.hostname:
-                    lan_host = parsed_url.hostname
-                else:
-                    lan_host = lan_url
-
-                # 提取纯IP:port用于描述
-                description_ip = lan_host
-                if '://' in description_ip:
-                    # 移除http://或https://前缀
-                    description_ip = description_ip.split('://')[1]
-                if '/' in description_ip:
-                    # 移除路径部分
-                    description_ip = description_ip.split('/')[0]
-
+                description_ip = parsed_url.netloc or parsed_url.path.split(
+                    '/')[0]
                 simplified_proxies.append({
                     'name':
-                    name,
+                    rule.get('Remark') or rule['Domains'][0],
                     'domain':
-                    domain,
+                    rule['Domains'][0],
                     'external_url':
-                    full_url,
+                    f"https://{rule['Domains'][0]}",
                     'internal_ip':
-                    lan_host,
+                    lan_url,
                     'description':
                     description_ip,
                     'status':
                     '运行中' if rule.get('Enable') else '已停止'
                 })
-
         return simplified_proxies, None
-
     except requests.exceptions.RequestException as e:
         return [], f"连接 Lucky API 失败: {e}"
     except Exception as e:
         return [], f"处理 Lucky 数据时发生错误: {e}"
 
 
+def get_docker_containers():
+    try:
+        client = docker.from_env()
+        all_docker_containers = client.containers.list(all=True)
+        containers = []
+        for container in all_docker_containers:
+            internal_ip = ""
+            if container.status == 'running' and container.ports:
+                for _, host_bindings in container.ports.items():
+                    if host_bindings:
+                        ip = host_bindings[0].get('HostIp', 'localhost')
+                        if ip == '0.0.0.0' and HOST_IP:
+                            ip = HOST_IP
+                        internal_ip = f"http://{ip}:{host_bindings[0]['HostPort']}"
+                        break
+
+            description_ip = ""
+            if internal_ip:
+                description_ip = urlparse(internal_ip).netloc
+
+            containers.append({
+                'name':
+                container.name,
+                'domain':
+                container.name,
+                'external_url':
+                '',
+                'internal_ip':
+                internal_ip,
+                'description':
+                description_ip,
+                'status':
+                '运行中' if container.status == 'running' else '已停止',
+                'source': ['Docker']
+            })
+        return containers, None
+    except Exception as e:
+        return [], f"获取 Docker 容器失败: {str(e)}"
+
+
+# --- 核心合并逻辑 (保持不变) ---
+def merge_sources(docker_containers, lucky_proxies):
+    merged_items = {
+        c['internal_ip']: c
+        for c in docker_containers if c['internal_ip']
+    }
+    final_list = [c for c in docker_containers if not c['internal_ip']]
+
+    for proxy in lucky_proxies:
+        ip = proxy['internal_ip']
+        if ip and ip in merged_items:
+            existing_item = merged_items[ip]
+            existing_item['name'] = proxy['name']
+            existing_item['domain'] = proxy['domain']
+            existing_item['external_url'] = proxy['external_url']
+            existing_item['source'].append('Lucky')
+        else:
+            proxy['source'] = ['Lucky']
+            final_list.append(proxy)
+
+    final_list.extend(merged_items.values())
+    final_list.sort(key=lambda item: item['name'].lower())
+    return final_list
+
+
+# --- Flask 路由和视图 ---
 @app.route('/')
 def index():
-    # 获取Lucky代理和Docker容器，合并列表
     lucky_proxies, lucky_error = get_lucky_proxies()
     docker_containers, docker_error = get_docker_containers()
-
-    # 合并列表并去重（基于域名/名称）
-    all_items = []
-    seen_names = set()
-
-    # 先添加Lucky代理
-    for proxy in lucky_proxies:
-        if proxy['domain'] not in seen_names:
-            seen_names.add(proxy['domain'])
-            all_items.append(proxy)
-
-    # 再添加Docker容器（不去重已存在的Lucky项目）
-    for container in docker_containers:
-        if container['domain'] not in seen_names:
-            seen_names.add(container['domain'])
-            all_items.append(container)
-
-    # 如果有错误，只显示第一个错误
+    all_items = merge_sources(docker_containers, lucky_proxies)
     error = lucky_error or docker_error
-
     return render_template('index.html', proxies=all_items, error=error)
 
 
 @app.route('/api/proxies')
 def api_proxies():
-    # 获取Lucky代理和Docker容器，合并列表
     lucky_proxies, lucky_error = get_lucky_proxies()
     docker_containers, docker_error = get_docker_containers()
-
-    # 合并列表并去重（基于域名/名称）
-    all_items = []
-    seen_names = set()
-
-    # 先添加Lucky代理
-    for proxy in lucky_proxies:
-        if proxy['domain'] not in seen_names:
-            seen_names.add(proxy['domain'])
-            all_items.append(proxy)
-
-    # 再添加Docker容器（不去重已存在的Lucky项目）
-    for container in docker_containers:
-        if container['domain'] not in seen_names:
-            seen_names.add(container['domain'])
-            all_items.append(container)
-
+    all_items = merge_sources(docker_containers, lucky_proxies)
     if lucky_error and docker_error:
         return jsonify(
             {'error': f"Lucky: {lucky_error}, Docker: {docker_error}"}), 500
@@ -155,203 +175,138 @@ def api_proxies():
         return jsonify({'error': lucky_error}), 500
     elif docker_error:
         return jsonify({'error': docker_error}), 500
-
     return jsonify(all_items)
 
 
 @app.route('/api/get_icon_urls')
 def get_icon_urls():
-    """获取网站的所有可能图标地址"""
     url = request.args.get('url')
-    if not url:
-        return jsonify({'error': 'URL parameter is required'}), 400
-
+    if not url: return jsonify({'error': 'URL parameter is required'}), 400
     try:
         parsed_url = urlparse(url)
         base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
-
-        icon_urls = []
-
-        # 常见的favicon位置
+        icon_urls, html_icons = [], []
         common_locations = [
-            '/favicon.ico', '/favicon.png', '/favicon.jpg', '/favicon.jpeg',
-            '/favicon.svg', '/apple-touch-icon.png',
-            '/apple-touch-icon-precomposed.png',
-            '/apple-touch-icon-120x120.png', '/apple-touch-icon-180x180.png'
+            '/favicon.ico', '/favicon.png', '/favicon.jpg', '/favicon.svg',
+            '/apple-touch-icon.png'
         ]
-
-        # 检查常见位置的图标
         for location in common_locations:
             icon_url = urljoin(base_url, location)
             try:
-                response = requests.head(icon_url,
-                                         timeout=3,
-                                         allow_redirects=True)
-                if response.status_code == 200:
+                if requests.head(icon_url, timeout=2,
+                                 allow_redirects=True).status_code == 200:
                     icon_urls.append({
                         'url': icon_url,
                         'type': 'common_location',
                         'name': location.split('/')[-1]
                     })
-            except:
+            except requests.RequestException:
                 continue
-
-        # 从HTML中查找图标链接
-        html_icons = []
         try:
             response = requests.get(url,
-                                    timeout=10,
+                                    timeout=5,
                                     headers={'User-Agent': 'Mozilla/5.0'})
             if response.status_code == 200:
-                content = response.text
-
-                # 查找所有icon相关的link标签
                 import re
-                icon_patterns = [
+                content = response.text
+                patterns = [
                     r'<link[^>]*rel=["\'](?:icon|shortcut icon)["\'][^>]*href=["\']([^"\']+)["\']',
-                    r'<link[^>]*href=["\']([^"\']+)["\'][^>]*rel=["\'](?:icon|shortcut icon)["\']',
                     r'<meta[^>]*name=["\']msapplication-TileImage["\'][^>]*content=["\']([^"\']+)["\']'
                 ]
-
-                for pattern in icon_patterns:
-                    matches = re.finditer(pattern, content, re.IGNORECASE)
-                    for match in matches:
+                for pattern in patterns:
+                    for match in re.finditer(pattern, content, re.IGNORECASE):
                         icon_path = match.group(1)
-                        icon_url = urljoin(base_url, icon_path)
                         html_icons.append({
                             'url':
-                            icon_url,
+                            urljoin(base_url, icon_path),
                             'type':
                             'html_link',
                             'name':
                             f'HTML: {icon_path.split("/")[-1]}'
                         })
-        except:
+        except requests.RequestException:
             pass
-
-        # 去重并合并结果
-        seen_urls = set()
-        all_icons = []
-
+        seen_urls, all_icons = set(), []
         for icon in icon_urls + html_icons:
             if icon['url'] not in seen_urls:
                 seen_urls.add(icon['url'])
                 all_icons.append(icon)
-
-        # 按类型排序：common_location优先
         all_icons.sort(
             key=lambda x: (x['type'] != 'common_location', x['url']))
-
         return jsonify({'iconUrls': all_icons})
-
     except Exception as e:
-        return jsonify({'error': f'Failed to get icon URLs: {str(e)}'}), 500
+        return jsonify({'error': f'获取图标链接失败: {str(e)}'}), 500
 
 
-def get_docker_containers():
-    """获取 Docker 容器列表 (使用官方 SDK)"""
+@app.route('/api/sunpanel/groups')
+def sunpanel_get_groups():
+    """代理 SunPanel 获取分组列表的 API 请求"""
+    if not (SUNPANEL_API_BASE and SUNPANEL_API_TOKEN):
+        return jsonify({'error': 'SunPanel API 未在环境变量中配置'}), 500
+
     try:
-        # 导入 docker 库
-        import docker
+        url = f"{SUNPANEL_API_BASE}/itemGroup/getList"
+        headers = {
+            'token': SUNPANEL_API_TOKEN,
+            'Content-Type': 'application/json'
+        }
+        # **核心修改**: 将 GET 请求改为 POST 请求，并发送一个空的json体
+        response = requests.post(url, headers=headers, json={}, timeout=10)
+        response.raise_for_status()
 
-        # 通过 socket 初始化客户端
-        client = docker.from_env()
+        # 增加对空响应的判断
+        if not response.text:
+            return jsonify({'error': 'SunPanel API 返回了空响应'}), 500
+        data = response.json()
 
-        # 获取所有正在运行的容器
-        running_containers = client.containers.list()
+        if data.get('code') != 0:
+            return jsonify({'error': data.get('msg',
+                                              '从 SunPanel 获取分组失败')}), 400
 
-        containers = []
-        for container in running_containers:
-            name = container.name
-            image = container.image.tags[0] if container.image.tags else 'N/A'
-
-            # 解析端口信息
-            internal_ip = ""
-            # container.ports 是一个字典，例如 {'80/tcp': [{'HostIp': '0.0.0.0', 'HostPort': '8080'}]}
-            if container.ports:
-                # 遍历所有端口映射
-                for internal_port, host_bindings in container.ports.items():
-                    if host_bindings:
-                        # 获取第一个绑定
-                        ip = host_bindings[0].get('HostIp', 'localhost')
-                        if ip == '0.0.0.0':
-                            ip = 'localhost'  # 或者你可以尝试获取宿主机的真实IP
-                        internal_ip = f"{ip}:{host_bindings[0]['HostPort']}"
-                        break  # 找到第一个就跳出
-
-            containers.append({
-                'name': name,
-                'domain': name,
-                'external_url': '',  # 外部地址留空
-                'internal_ip': internal_ip,
-                'description':
-                f"{image} ({internal_ip if internal_ip else '无端口暴露'})",
-                'status': '运行中',  # .list() 默认只返回运行中的
-                'source': 'docker'  # 标记来源为Docker
-            })
-
-        return containers, None
-
-    except ImportError:
-        return [], "Docker SDK 未安装。请将 'docker' 添加到 requirements.txt 并重新构建镜像。"
+        return jsonify(data.get('data', {}).get('list', []))
+    except requests.exceptions.RequestException as e:
+        return jsonify({'error': f'连接 SunPanel API 失败: {e}'}), 500
+    except json.JSONDecodeError:
+        return jsonify(
+            {'error': 'SunPanel API 返回了非JSON格式的响应，请检查API端点或SunPanel状态'}), 500
     except Exception as e:
-        # 捕获更具体的错误，例如无法连接到 Docker socket
-        return [], f"获取Docker容器失败: {str(e)}"
+        return jsonify({'error': f'处理分组数据时发生错误: {e}'}), 500
 
 
 @app.route('/api/sunpanel/item/create', methods=['POST'])
 def sunpanel_create_item():
-    """代理 SunPanel 创建项目的 API 请求，解决 CORS 问题"""
     try:
-        # 从请求中获取数据
         data = request.get_json()
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-
-        # 转发请求到 SunPanel API
+        if not data: return jsonify({'error': 'No data provided'}), 400
         sunpanel_url = f"{SUNPANEL_API_BASE}/item/create"
         headers = {
             'Content-Type': 'application/json',
             'token': SUNPANEL_API_TOKEN
         }
-
         response = requests.post(sunpanel_url,
                                  json=data,
                                  headers=headers,
                                  timeout=30)
         response.raise_for_status()
-
         sunpanel_response = response.json()
-
-        # 处理SunPanel特定的错误码
         if isinstance(sunpanel_response, dict):
             code = sunpanel_response.get('code', 0)
-            if code != 0:  # 非0表示有错误
-                error_map = {
-                    1100: '令牌过期',
-                    1000: '参数格式错误',
-                    1001: '参数格式错误',
-                    1202: '唯一名称已存在',
-                    1203: '无记录'
-                }
-                error_msg = sunpanel_response.get('msg', '未知错误')
+            if code != 0:
+                error_map = {1100: '令牌过期', 1000: '参数格式错误', 1202: '唯一名称已存在'}
                 return jsonify({
-                    'error': error_map.get(code, error_msg),
-                    'code': code,
-                    'details': error_msg
+                    'error':
+                    error_map.get(code, sunpanel_response.get('msg', '未知错误')),
+                    'code':
+                    code
                 }), 400
-
         return jsonify(sunpanel_response), response.status_code
-
     except requests.exceptions.RequestException as e:
-        return jsonify({'error':
-                        f'SunPanel API request failed: {str(e)}'}), 500
+        return jsonify({'error': f'请求 SunPanel API 失败: {str(e)}'}), 500
     except Exception as e:
-        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
-    finally:
-        pass
+        return jsonify({'error': f'服务器内部错误: {str(e)}'}), 500
 
 
+# --- 主程序入口 ---
 if __name__ == '__main__':
     try:
         app.run(host='0.0.0.0', port=3003, debug=True, use_reloader=False)

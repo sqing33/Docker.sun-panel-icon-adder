@@ -2,6 +2,7 @@ services:
   sun-panel-icon-adder:
     image: ghcr.io/sqing33/sun-panel-icon-adder
     container_name: sun-panel-icon-adder
+    restart: always
     ports:
       - "3003:3003"
     environment:
@@ -9,7 +10,5 @@ services:
       - SUNPANEL_API_TOKEN=
       - LUCKY_API_ENDPOINT=http://192.168.1.100:16601
       - LUCKY_API_TOKEN=
-    restart: always
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    privileged: true
