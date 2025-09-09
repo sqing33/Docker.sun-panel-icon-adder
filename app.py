@@ -25,6 +25,19 @@ SUNPANEL_API_BASE = os.getenv('SUNPANEL_API_BASE')
 SUNPANEL_API_TOKEN = os.getenv('SUNPANEL_API_TOKEN')
 
 
+# 检查 Docker Socket 是否可用
+def is_docker_socket_available():
+    try:
+        docker.from_env()
+        return True
+    except:
+        return False
+
+
+DOCKER_SOCKET_AVAILABLE = is_docker_socket_available()
+LUCKY_CONFIG_AVAILABLE = bool(LUCKY_API_ENDPOINT and LUCKY_API_TOKEN)
+
+
 # --- 辅助函数 ---
 def get_host_ip_from_endpoints():
     endpoints_to_check = [
@@ -48,8 +61,9 @@ HOST_IP = get_host_ip_from_endpoints()
 
 
 def get_lucky_proxies():
-    if not (LUCKY_API_ENDPOINT and LUCKY_API_TOKEN):
-        return [], "Lucky API 端点或 Token 未配置"
+    # 如果 Lucky 配置不可用，直接返回空列表
+    if not LUCKY_CONFIG_AVAILABLE:
+        return [], None
     headers = {
         'openToken': LUCKY_API_TOKEN,
         'User-Agent': 'Sun-Panel-Icon-Adder/1.0'
@@ -96,6 +110,10 @@ def get_lucky_proxies():
 
 
 def get_docker_containers():
+    # 如果 Docker Socket 不可用，直接返回空列表
+    if not DOCKER_SOCKET_AVAILABLE:
+        return [], None
+
     try:
         client = docker.from_env()
         all_docker_containers = client.containers.list(all=True)
@@ -252,12 +270,21 @@ def index():
     docker_containers, docker_error = get_docker_containers()
     all_items = merge_sources(docker_containers, lucky_proxies)
     error = None
+
+    # 只有当存在实际错误时才显示错误信息
     if lucky_error and docker_error:
         error = f"Lucky 错误: {lucky_error} | Docker 错误: {docker_error}"
     elif lucky_error:
         error = lucky_error
     elif docker_error:
         error = docker_error
+    elif not LUCKY_CONFIG_AVAILABLE and not DOCKER_SOCKET_AVAILABLE:
+        error = "注意：Lucky 和 Docker 功能均已禁用（缺少配置或 Socket）"
+    elif not LUCKY_CONFIG_AVAILABLE:
+        error = "注意：Lucky 功能已禁用（缺少配置）"
+    elif not DOCKER_SOCKET_AVAILABLE:
+        error = "注意：Docker 功能已禁用（Socket 不可用）"
+
     return render_template('index.html', proxies=all_items, error=error)
 
 
