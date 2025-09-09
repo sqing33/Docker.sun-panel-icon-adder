@@ -94,6 +94,13 @@ python app.py
 5. 选择文件夹分类查看书签
 6. 点击书签条目中的"添加"按钮将书签导入 Sun-Panel
 
+## 使用截图
+
+<img width="1920" height="963" alt="PixPin_2025-09-09_20-43-14" src="https://github.com/user-attachments/assets/74f9f4a3-42ff-41ae-b686-67bbf7bdb8da" />
+<img width="1920" height="963" alt="PixPin_2025-09-09_20-43-51" src="https://github.com/user-attachments/assets/31b1ad9c-bfa5-483a-9da7-7aef6dbb1fa7" />
+<img width="1920" height="963" alt="PixPin_2025-09-09_20-44-27" src="https://github.com/user-attachments/assets/dcc48bf3-c83b-4f9d-9727-12396bdb37b9" />
+
+
 ## API 接口
 
 - `/api/get_icon_urls?url=` - 获取网站图标 URL
