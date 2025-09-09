@@ -3,6 +3,7 @@ import requests
 import json
 import tempfile
 import shutil
+import subprocess
 from flask import Flask, render_template, jsonify, request, send_file
 from urllib.parse import urlparse, urljoin
 from dotenv import load_dotenv
@@ -99,16 +100,62 @@ def get_lucky_proxies():
 
 @app.route('/')
 def index():
-    proxies, error = get_lucky_proxies()
-    return render_template('index.html', proxies=proxies, error=error)
+    # 获取Lucky代理和Docker容器，合并列表
+    lucky_proxies, lucky_error = get_lucky_proxies()
+    docker_containers, docker_error = get_docker_containers()
+    
+    # 合并列表并去重（基于域名/名称）
+    all_items = []
+    seen_names = set()
+    
+    # 先添加Lucky代理
+    for proxy in lucky_proxies:
+        if proxy['domain'] not in seen_names:
+            seen_names.add(proxy['domain'])
+            all_items.append(proxy)
+    
+    # 再添加Docker容器（不去重已存在的Lucky项目）
+    for container in docker_containers:
+        if container['domain'] not in seen_names:
+            seen_names.add(container['domain'])
+            all_items.append(container)
+    
+    # 如果有错误，只显示第一个错误
+    error = lucky_error or docker_error
+    
+    return render_template('index.html', proxies=all_items, error=error)
 
 
 @app.route('/api/proxies')
 def api_proxies():
-    proxies, error = get_lucky_proxies()
-    if error:
-        return jsonify({'error': error}), 500
-    return jsonify(proxies)
+    # 获取Lucky代理和Docker容器，合并列表
+    lucky_proxies, lucky_error = get_lucky_proxies()
+    docker_containers, docker_error = get_docker_containers()
+    
+    # 合并列表并去重（基于域名/名称）
+    all_items = []
+    seen_names = set()
+    
+    # 先添加Lucky代理
+    for proxy in lucky_proxies:
+        if proxy['domain'] not in seen_names:
+            seen_names.add(proxy['domain'])
+            all_items.append(proxy)
+    
+    # 再添加Docker容器（不去重已存在的Lucky项目）
+    for container in docker_containers:
+        if container['domain'] not in seen_names:
+            seen_names.add(container['domain'])
+            all_items.append(container)
+    
+    if lucky_error and docker_error:
+        return jsonify({'error': f"Lucky: {lucky_error}, Docker: {docker_error}"}), 500
+    elif lucky_error:
+        return jsonify({'error': lucky_error}), 500
+    elif docker_error:
+        return jsonify({'error': docker_error}), 500
+        
+    return jsonify(all_items)
 
 
 @app.route('/api/get_icon_urls')
@@ -199,6 +246,47 @@ def get_icon_urls():
     except Exception as e:
         return jsonify({'error': f'Failed to get icon URLs: {str(e)}'}), 500
 
+
+def get_docker_containers():
+    """获取 Docker 容器列表"""
+    try:
+        result = subprocess.run(['docker', 'ps', '--format', '{{.Names}}|{{.Ports}}|{{.Image}}'], 
+                              capture_output=True, text=True, timeout=10)
+        
+        if result.returncode != 0:
+            return [], f"Docker命令执行失败: {result.stderr}"
+        
+        containers = []
+        for line in result.stdout.strip().split('\n'):
+            if line.strip():
+                name, ports, image = line.split('|', 2)
+                
+                # 解析端口信息
+                internal_ip = ""
+                if ports:
+                    # 提取第一个端口映射，格式如: 0.0.0.0:8080->80/tcp
+                    port_parts = ports.split('->')[0].split(':')
+                    if len(port_parts) >= 2:
+                        ip = port_parts[0] if port_parts[0] != '0.0.0.0' else 'localhost'
+                        port = port_parts[1]
+                        internal_ip = f"{ip}:{port}"
+                
+                containers.append({
+                    'name': name,
+                    'domain': name,
+                    'external_url': '',  # 外部地址留空
+                    'internal_ip': internal_ip,
+                    'description': f"{image} ({ports if ports else '无端口暴露'})",
+                    'status': '运行中',
+                    'source': 'docker'  # 标记来源为Docker
+                })
+        
+        return containers, None
+        
+    except subprocess.TimeoutExpired:
+        return [], "Docker命令执行超时"
+    except Exception as e:
+        return [], f"获取Docker容器失败: {str(e)}"
 
 
 
